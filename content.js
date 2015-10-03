@@ -310,8 +310,8 @@ var downloader = (function() {
   obj.add = function(data, photo) {
     cnt++;
 
-    var base64Data = base64ArrayBuffer(data);
-    folder.file(photo.filename, base64Data, {base64: true});
+    //var base64Data = base64ArrayBuffer(data);
+    folder.file(photo.filename, data, {base64: true});
 
     view.updateDownloadProgress(cnt, len);
     if (cnt === len) {
@@ -393,12 +393,15 @@ var album = (function() {
       }
       (function() {
         var photo = photos[idx];
-        if (options.originalSize === 'true') {
-          var urlArr = [photo.src.original, photo.src.xlarge, photo.src.large];
-        } else {
-          var urlArr = [photo.src.large];
+        var urlArr = [photo.src];
+        var str2ab = function(str) {
+              var buf = new ArrayBuffer(str.length*2); // 2 bytes for each char
+              var bufView = new Uint16Array(buf);
+            for (var i=0, strLen=str.length; i<strLen; i++) {
+              bufView[i] = str.charCodeAt(i);
+             }
+          return buf;
         }
-
         var ajaxPhoto = function(urlArr) {
           $.ajax({
             url: urlArr[0],
@@ -411,9 +414,16 @@ var album = (function() {
               }
               downloader.onError();
             },
-            success: function(data) {
+            success: function(data, textStatus, jqXHR) {
               cnt++;
-              downloader.add(data, photo);
+              var binary = "";
+              var responseText = jqXHR.responseText;
+              var responseTextLen = responseText.length;
+
+              for ( i = 0; i < responseTextLen; i++ ) {
+                binary += String.fromCharCode(responseText.charCodeAt(i) & 255)
+              }
+              downloader.add(btoa(binary), photo);//btoa change binary to base64
 
               // Adjust GET_PHOTO_ITV
               conf.GET_PHOTO_ITV = data.byteLength > 1048576 ? conf.GET_PHOTO_ITV_H : conf.GET_PHOTO_ITV_L;
@@ -445,14 +455,14 @@ var album = (function() {
       folderName = 'renren-album-' + albumId;
     }
     var $albumInfo = $('div.ablum-infor');
-    albumName = $albumInfo.children('h1').contents()[0].data;
-    albumDesc = $.trim($('#describeAlbum').contents()[0].data);
+    albumName = $albumInfo.context.title;
+    albumDesc = '';
     (albumDesc === '还没有相册描述...') && (albumDesc = '');
 
     // Get all the sources and put in photos array
     photos = [];
     var cnt = 0;
-    var $photoItems = $('div.photo-list li');
+    var $photoItems = $('.photo-box');
     if ($photoItems.length === 0) {
       // No photos to download
       // TODO
@@ -461,30 +471,19 @@ var album = (function() {
 
     $photoItems.each(function(idx, ele) {
       var $ele = $(ele);
-      var $a = $ele.children('a.picture');
+      var $a = $ele.children('a');
       var pageUrl = $a.attr('href');
 
       var $img = $a.children('img');
-      var src = (function() {
-        eval('var obj = ' + $img.attr('data-photo'));
-        var large = obj.large;
-
-        // replace '/large' with '/original' or '/xlarge' to get larger img
-        var original = large.replace('/large', '/original');
-        var xlarge = large.replace('/large', '/xlarge');
-        return {
-          large: large,
-          xlarge: xlarge,
-          original: original
-        };
-      })();
-      var ext = src.large.match(/.\w{3,4}$/)[0];
+      var src = $ele.find('img').attr('src');
+      var ext = src.match(/.\w{3,4}$/)[0];//get the extension of image
 
       var $desc = $ele.find('span.descript');
       var title = $desc.length ? $desc.text() : '';
-
+      var real_url = jQuery.parseJSON($ele.find('img').attr('data-viewer'))['url'];
+      //real_url = real_url.replace("large", "original"); some of the images don't have original files
       photos.push({
-        src: src,
+        src: real_url,
         title: title,
         filename: (idx + 1) + ext,
         idx: idx + 1,
